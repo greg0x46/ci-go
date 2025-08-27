@@ -71,7 +71,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}       # Token de autenticação
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }} # URL do servidor Sonar
+  
         with:
           args: >
             -Dsonar.go.coverage.reportPaths=coverage.out # Informa o arquivo de cobertura
