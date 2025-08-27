@@ -96,12 +96,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Builda e publica a imagem no DockerHub
-      - uses: docker/build-push-action@v6
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
         with:
-          context: .
           push: true
-          tags: |
-            greg0x46/ci-go:latest               # Tag "latest"
-            greg0x46/ci-go:sha-${{ github.sha }} # Tag única baseada no commit
-          cache-from: type=gha
-          cache-to: type=gha,mode=max           # Cache de build para acelerar builds futuros
+          tags: greg0x46/ci-go:latest
