@@ -2,7 +2,7 @@ name: ci-go-workflow
 
 on:
   push:
-    branches: [ main ]      # Executa no push para a branch main
+    branches: [ main, develop ]      # Executa no push para a branch main, develop
   pull_request:
     branches: [ develop ]   # Executa também em PRs que apontam para develop
 
