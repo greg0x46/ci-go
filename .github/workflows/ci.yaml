@@ -1,26 +1,107 @@
 name: ci-go-workflow
+
 on:
+  push:
+    branches: [ main, develop ]      # Executa no push para a branch main, develop
   pull_request:
-    branches:
-      - develop
+    branches: [ develop ]   # Executa também em PRs que apontam para develop
 
 jobs:
-  check-application:
+  tests:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: [1.25, 1.24]
+    permissions:
+      contents: read         # Só precisa de permissão de leitura do código
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # Baixa o código do repositório
+      - uses: actions/checkout@v5
         with:
-          go-version: ${{ matrix.go-version }}
-      
-      - name: Run Go tests
-        run: go test
+          fetch-depth: 0     # Necessário para Sonar analisar histórico/branches
 
-      - name: Run Go application
-        run: go run math.go
+      # Configura a versão do Go
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      # Cache dos módulos Go para acelerar builds entre execuções
+      - name: Cache Go
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      # Análise estática básica do Go
+      - name: Go vet
+        run: go vet ./...
+
+      # Roda os testes em todos os pacotes com cobertura
+      - name: Test with coverage
+        run: go test ./... -coverprofile=coverage.out
+
+      # Publica o relatório de cobertura como artefato
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  sonar:
+    runs-on: ubuntu-latest
+    needs: tests             # Só roda depois dos testes concluírem
+    if: ${{ always() && (github.event_name == 'push' || github.event_name == 'pull_request') }}
+    permissions:
+      contents: read         # Apenas leitura do código
+
+    steps:
+      # Checkout de novo é necessário porque cada job roda em um runner limpo
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0     # De novo: Sonar precisa de histórico de commits
+
+      # Baixa o relatório de cobertura da job anterior
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      # Roda o scan no SonarQube (ou SonarCloud, se for o caso)
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}       # Token de autenticação
+  
+        with:
+          args: >
+            -Dsonar.go.coverage.reportPaths=coverage.out # Informa o arquivo de cobertura
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: tests              # Só builda a imagem se os testes passaram
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # Condição acima: só faz push da imagem se for um push na branch main
+
+    steps:
+      # Checkout do código
+      - uses: actions/checkout@v5
+
+      # Configura o builder do Docker
+      - uses: docker/setup-buildx-action@v3
+
+      # Login no DockerHub usando secrets
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Builda e publica a imagem no DockerHub
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            greg0x46/ci-go:latest               # Tag "latest"
+            greg0x46/ci-go:sha-${{ github.sha }} # Tag única baseada no commit
+          cache-from: type=gha
+          cache-to: type=gha,mode=max           # Cache de build para acelerar builds futuros
